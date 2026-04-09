@@ -1,0 +1,56 @@
+substitutions:
+  # ── Override all of these in the Cloud Build trigger UI ───────────────────
+  _REGION: us-central1
+  _SERVICE: event-automation
+  _SA: techlab-sheet-reader@tl-openx.iam.gserviceaccount.com
+  _SPREADSHEET_ID: 1h7h20__qofEqjUv6Eg2XB46TZ78NRZaish3nzOJbYd8
+  _SMTP_HOST: mail.smtp2go.com
+  _SMTP_PORT: '587'
+  _SMTP_USER: iabtechlab
+  _SMTP_PASS: ''
+  _EMAIL_FROM: IAB Tech Lab <support@iabtechlab.com>
+  _EMAIL_TO: ''
+
+steps:
+  # 1. Build the Docker image
+  - name: gcr.io/cloud-builders/docker
+    id: build
+    args:
+      - build
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/${_SERVICE}:$SHORT_SHA
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/${_SERVICE}:latest
+      - .
+
+  # 2. Push both tags to Artifact Registry
+  - name: gcr.io/cloud-builders/docker
+    id: push
+    waitFor: [build]
+    args:
+      - push
+      - --all-tags
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/${_SERVICE}
+
+  # 3. Deploy to Cloud Run — all config passed as env vars from substitutions
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    id: deploy
+    waitFor: [push]
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE}
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/${_SERVICE}:$SHORT_SHA
+      - --region=${_REGION}
+      - --service-account=${_SA}
+      - --no-allow-unauthenticated
+      - --set-env-vars=SPREADSHEET_ID=${_SPREADSHEET_ID},SMTP_HOST=${_SMTP_HOST},SMTP_PORT=${_SMTP_PORT},SMTP_USER=${_SMTP_USER},SMTP_PASS=${_SMTP_PASS},EMAIL_FROM=${_EMAIL_FROM},EMAIL_TO=${_EMAIL_TO}
+      - --quiet
+
+images:
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/${_SERVICE}:$SHORT_SHA
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/${_SERVICE}:latest
+
+options:
+  logging: CLOUD_LOGGING_ONLY
