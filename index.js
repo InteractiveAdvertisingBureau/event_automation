@@ -432,7 +432,7 @@ app.post('/', async (req, res) => {
     const sections = parseSheetData(rows);
 
     // ── Slack notification ──────────────────────────────────────────────────
-    const slackPayload = buildSlackTable(sections);
+    const slackPayload = buildSlackBlocks(sections);
     console.log('Sending Slack message...');
     await sendSlack(slackPayload);
     console.log('Slack message sent.');
