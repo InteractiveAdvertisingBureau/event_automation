@@ -20,6 +20,9 @@ const SMTP_PASS = process.env.SMTP_PASS;
 const EMAIL_FROM = process.env.EMAIL_FROM || SMTP_USER;
 const EMAIL_TO   = process.env.EMAIL_TO;   // comma-separated for multiple recipients
 
+// Slack config
+const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL;
+
 // ── Google Sheets auth (uses ADC / service account on Cloud Run) ─────────────
 async function getSheetsClient() {
   const auth = new google.auth.GoogleAuth({
@@ -261,6 +264,81 @@ async function sendEmail(html) {
   return info.messageId;
 }
 
+// ── Build Slack Block Kit message ─────────────────────────────────────────────
+function buildSlackBlocks(sections) {
+  const today = new Date().toLocaleDateString('en-US', {
+    year: 'numeric', month: 'long', day: 'numeric',
+  });
+
+  const val = (v) => (v == null || v === '' ? '—' : v);
+
+  const tableRows = (items, cols) =>
+    items.length === 0
+      ? '_No data_'
+      : items.map(e => cols.map(c => `*${c.label}:* ${val(e[c.key])}`).join('   ')).join('\n');
+
+  const marqueeText = tableRows(
+    sections.marqueeEvents,
+    [{ label: 'Event', key: 'name' }, { label: 'Total Reg', key: 'totalReg' }, { label: 'Paid Reg', key: 'paidReg' }]
+  );
+
+  const webinarText = tableRows(
+    sections.webinars.filter(e => e.name !== 'TBD'),
+    [{ label: 'Webinar', key: 'name' }, { label: 'Total Reg', key: 'totalReg' }]
+  );
+
+  const bootcampText = tableRows(
+    sections.agenticBootcamps,
+    [{ label: 'Session', key: 'name' }, { label: 'Total Reg', key: 'totalReg' }]
+  );
+
+  const workshopText = tableRows(
+    sections.workshops.filter(e => e.name !== 'TBD'),
+    [{ label: 'Workshop', key: 'name' }, { label: 'Total Reg', key: 'totalReg' }]
+  );
+
+  return {
+    blocks: [
+      {
+        type: 'header',
+        text: { type: 'plain_text', text: 'IAB Tech Lab — Registration Report', emoji: false },
+      },
+      {
+        type: 'context',
+        elements: [{ type: 'mrkdwn', text: today }],
+      },
+      { type: 'divider' },
+      { type: 'section', text: { type: 'mrkdwn', text: '*Marquee Events*' } },
+      { type: 'section', text: { type: 'mrkdwn', text: marqueeText } },
+      { type: 'divider' },
+      { type: 'section', text: { type: 'mrkdwn', text: '*Webinars*' } },
+      { type: 'section', text: { type: 'mrkdwn', text: webinarText } },
+      { type: 'divider' },
+      { type: 'section', text: { type: 'mrkdwn', text: '*Agentic Bootcamps*' } },
+      { type: 'section', text: { type: 'mrkdwn', text: bootcampText } },
+      { type: 'divider' },
+      { type: 'section', text: { type: 'mrkdwn', text: '*Workshops*' } },
+      { type: 'section', text: { type: 'mrkdwn', text: workshopText } },
+    ],
+  };
+}
+
+// ── Send Slack message via Incoming Webhook ───────────────────────────────────
+async function sendSlack(payload) {
+  if (!SLACK_WEBHOOK_URL) throw new Error('Missing required env var: SLACK_WEBHOOK_URL');
+
+  const res = await fetch(SLACK_WEBHOOK_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Slack webhook failed: ${res.status} ${text}`);
+  }
+}
+
 // ── HTTP handler ──────────────────────────────────────────────────────────────
 app.post('/', async (req, res) => {
   try {
@@ -270,13 +348,20 @@ app.post('/', async (req, res) => {
 
     console.log(`Fetched ${rows.length} rows from "${SHEET_NAME}"`);
     const sections = parseSheetData(rows);
-    const html     = buildEmailHtml(sections);
 
-    console.log('Sending email...');
-    const messageId = await sendEmail(html);
+    // ── Slack notification ──────────────────────────────────────────────────
+    const slackPayload = buildSlackBlocks(sections);
+    console.log('Sending Slack message...');
+    await sendSlack(slackPayload);
+    console.log('Slack message sent.');
 
-    console.log(`Email sent. messageId=${messageId}`);
-    res.status(200).json({ status: 'ok', messageId });
+    // ── Email notification (disabled) ──────────────────────────────────────
+    // const html = buildEmailHtml(sections);
+    // console.log('Sending email...');
+    // const messageId = await sendEmail(html);
+    // console.log(`Email sent. messageId=${messageId}`);
+
+    res.status(200).json({ status: 'ok' });
   } catch (err) {
     console.error('Error:', err);
     res.status(500).json({ status: 'error', message: err.message });
