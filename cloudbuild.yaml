@@ -46,7 +46,7 @@ steps:
       - --region=${_REGION}
       - --service-account=${_SA}
       - --no-allow-unauthenticated
-      - --set-env-vars=SPREADSHEET_ID=${_SPREADSHEET_ID},SMTP_HOST=${_SMTP_HOST},SMTP_PORT=${_SMTP_PORT},SMTP_USER=${_SMTP_USER},SMTP_PASS=${_SMTP_PASS},EMAIL_FROM=${_EMAIL_FROM},EMAIL_TO=${_EMAIL_TO},SLACK_WEBHOOK_URL=${_SLACK_WEBHOOK_URL}
+      - --set-env-vars=^|^SPREADSHEET_ID=${_SPREADSHEET_ID}|SMTP_HOST=${_SMTP_HOST}|SMTP_PORT=${_SMTP_PORT}|SMTP_USER=${_SMTP_USER}|SMTP_PASS=${_SMTP_PASS}|EMAIL_FROM=${_EMAIL_FROM}|EMAIL_TO=${_EMAIL_TO}|SLACK_WEBHOOK_URL=${_SLACK_WEBHOOK_URL}
       - --quiet
 
 images:
