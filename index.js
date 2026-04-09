@@ -20,8 +20,11 @@ const SMTP_PASS = process.env.SMTP_PASS;
 const EMAIL_FROM = process.env.EMAIL_FROM || SMTP_USER;
 const EMAIL_TO   = process.env.EMAIL_TO;   // comma-separated for multiple recipients
 
-// Slack config
-const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL;
+// Slack config — comma-separated for multiple webhooks
+const SLACK_WEBHOOK_URLS = (process.env.SLACK_WEBHOOK_URL || '')
+  .split(',')
+  .map(u => u.trim())
+  .filter(Boolean);
 
 // ── Google Sheets auth (uses ADC / service account on Cloud Run) ─────────────
 async function getSheetsClient() {
@@ -211,7 +214,7 @@ function buildEmailHtml(sections) {
     <!-- Header -->
     <div style="background:#1a3a5c;padding:20px 24px;">
       <div style="font-size:17px;font-weight:bold;color:#fff;line-height:1.3;">
-        IAB Tech Lab — Registration Report
+        Event Registration Report
       </div>
       <div style="font-size:12px;color:#a8c4e0;margin-top:4px;">${today}</div>
     </div>
@@ -301,7 +304,7 @@ function buildSlackBlocks(sections) {
     blocks: [
       {
         type: 'header',
-        text: { type: 'plain_text', text: 'IAB Tech Lab — Registration Report', emoji: false },
+        text: { type: 'plain_text', text: 'Event Registration Report', emoji: false },
       },
       {
         type: 'context',
@@ -323,20 +326,99 @@ function buildSlackBlocks(sections) {
   };
 }
 
-// ── Send Slack message via Incoming Webhook ───────────────────────────────────
-async function sendSlack(payload) {
-  if (!SLACK_WEBHOOK_URL) throw new Error('Missing required env var: SLACK_WEBHOOK_URL');
-
-  const res = await fetch(SLACK_WEBHOOK_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+// ── Build Slack message with monospace table layout ───────────────────────────
+function buildSlackTable(sections) {
+  const today = new Date().toLocaleDateString('en-US', {
+    year: 'numeric', month: 'long', day: 'numeric',
   });
 
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Slack webhook failed: ${res.status} ${text}`);
+  const val = (v) => (v == null || v === '' ? '—' : String(v));
+  const padL = (s, w) => String(s).padEnd(w);
+  const padR = (s, w) => String(s).padStart(w);
+
+  // cols: [{ label, key, width, align }]
+  function makeTable(items, cols) {
+    if (items.length === 0) return '  (no data)';
+    const top    = '┌' + cols.map(c => '─'.repeat(c.width + 2)).join('┬') + '┐';
+    const header = '│ ' + cols.map(c => padL(c.label, c.width)).join(' │ ') + ' │';
+    const divider= '├' + cols.map(c => '─'.repeat(c.width + 2)).join('┼') + '┤';
+    const bottom = '└' + cols.map(c => '─'.repeat(c.width + 2)).join('┴') + '┘';
+    const rows = items.map(e =>
+      '│ ' + cols.map(c =>
+        c.align === 'right'
+          ? padR(val(e[c.key]), c.width)
+          : padL(val(e[c.key]), c.width)
+      ).join(' │ ') + ' │'
+    );
+    return [top, header, divider, ...rows, bottom].join('\n');
   }
+
+  const marqueeTable = makeTable(sections.marqueeEvents, [
+    { label: 'Event',     key: 'name',     width: 32, align: 'left'  },
+    { label: 'Total Reg', key: 'totalReg', width: 9,  align: 'right' },
+    { label: 'Paid Reg',  key: 'paidReg',  width: 8,  align: 'right' },
+  ]);
+
+  const webinarTable = makeTable(
+    sections.webinars.filter(e => e.name !== 'TBD'),
+    [
+      { label: 'Webinar',   key: 'name',     width: 36, align: 'left'  },
+      { label: 'Total Reg', key: 'totalReg', width: 9,  align: 'right' },
+    ]
+  );
+
+  const bootcampTable = makeTable(sections.agenticBootcamps, [
+    { label: 'Session',   key: 'name',     width: 36, align: 'left'  },
+    { label: 'Total Reg', key: 'totalReg', width: 9,  align: 'right' },
+  ]);
+
+  const workshopTable = makeTable(
+    sections.workshops.filter(e => e.name !== 'TBD'),
+    [
+      { label: 'Workshop',  key: 'name',     width: 36, align: 'left'  },
+      { label: 'Total Reg', key: 'totalReg', width: 9,  align: 'right' },
+    ]
+  );
+
+  const section = (title, table) => ([
+    { type: 'section', text: { type: 'mrkdwn', text: `*${title}*` } },
+    { type: 'section', text: { type: 'mrkdwn', text: `\`\`\`${table}\`\`\`` } },
+  ]);
+
+  return {
+    blocks: [
+      {
+        type: 'header',
+        text: { type: 'plain_text', text: 'Event Registration Report', emoji: false },
+      },
+      { type: 'context', elements: [{ type: 'mrkdwn', text: today }] },
+      { type: 'divider' },
+      ...section('Marquee Events',    marqueeTable),
+      { type: 'divider' },
+      ...section('Webinars',          webinarTable),
+      { type: 'divider' },
+      ...section('Agentic Bootcamps', bootcampTable),
+      { type: 'divider' },
+      ...section('Workshops',         workshopTable),
+    ],
+  };
+}
+
+// ── Send Slack message via Incoming Webhook ───────────────────────────────────
+async function sendSlack(payload) {
+  if (SLACK_WEBHOOK_URLS.length === 0) throw new Error('Missing required env var: SLACK_WEBHOOK_URL');
+
+  await Promise.all(SLACK_WEBHOOK_URLS.map(async (url) => {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Slack webhook failed for ${url}: ${res.status} ${text}`);
+    }
+  }));
 }
 
 // ── HTTP handler ──────────────────────────────────────────────────────────────
@@ -350,7 +432,7 @@ app.post('/', async (req, res) => {
     const sections = parseSheetData(rows);
 
     // ── Slack notification ──────────────────────────────────────────────────
-    const slackPayload = buildSlackBlocks(sections);
+    const slackPayload = buildSlackTable(sections);
     console.log('Sending Slack message...');
     await sendSlack(slackPayload);
     console.log('Slack message sent.');
