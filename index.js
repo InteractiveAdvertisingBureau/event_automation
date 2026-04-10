@@ -421,37 +421,23 @@ async function sendSlack(payload) {
   }));
 }
 
-// ── Build a single-section Slack payload ─────────────────────────────────────
+// ── Build a single-section Slack payload (block format) ──────────────────────
 function buildSectionBlock(title, items, cols) {
   const today = new Date().toLocaleDateString('en-US', {
     year: 'numeric', month: 'long', day: 'numeric',
   });
-  const val  = (v) => (v == null || v === '' ? '—' : String(v));
-  const padL = (s, w) => String(s).padEnd(w);
-  const padR = (s, w) => String(s).padStart(w);
+  const val = (v) => (v == null || v === '' ? '—' : v);
 
-  let tableText;
-  if (items.length === 0) {
-    tableText = '  (no data)';
-  } else {
-    const top     = '┌' + cols.map(c => '─'.repeat(c.width + 2)).join('┬') + '┐';
-    const header  = '│ ' + cols.map(c => padL(c.label, c.width)).join(' │ ') + ' │';
-    const divider = '├' + cols.map(c => '─'.repeat(c.width + 2)).join('┼') + '┤';
-    const bottom  = '└' + cols.map(c => '─'.repeat(c.width + 2)).join('┴') + '┘';
-    const rows = items.map(e =>
-      '│ ' + cols.map(c =>
-        c.align === 'right' ? padR(val(e[c.key]), c.width) : padL(val(e[c.key]), c.width)
-      ).join(' │ ') + ' │'
-    );
-    tableText = [top, header, divider, ...rows, bottom].join('\n');
-  }
+  const bodyText = items.length === 0
+    ? '_No data_'
+    : items.map(e => cols.map(c => `*${c.label}:* ${val(e[c.key])}`).join('   ')).join('\n');
 
   return {
     blocks: [
       { type: 'header', text: { type: 'plain_text', text: `Event Registration Report — ${title}`, emoji: false } },
       { type: 'context', elements: [{ type: 'mrkdwn', text: today }] },
       { type: 'divider' },
-      { type: 'section', text: { type: 'mrkdwn', text: `\`\`\`${tableText}\`\`\`` } },
+      { type: 'section', text: { type: 'mrkdwn', text: bodyText } },
     ],
   };
 }
@@ -463,33 +449,33 @@ async function sendSlackSections(sections) {
       title: 'Marquee Events',
       items: sections.marqueeEvents,
       cols: [
-        { label: 'Event',     key: 'name',     width: 32, align: 'left'  },
-        { label: 'Total Reg', key: 'totalReg', width: 9,  align: 'right' },
-        { label: 'Paid Reg',  key: 'paidReg',  width: 8,  align: 'right' },
+        { label: 'Event',     key: 'name'     },
+        { label: 'Total Reg', key: 'totalReg' },
+        { label: 'Paid Reg',  key: 'paidReg'  },
       ],
     },
     {
       title: 'Webinars',
       items: sections.webinars.filter(e => e.name !== 'TBD'),
       cols: [
-        { label: 'Webinar',   key: 'name',     width: 36, align: 'left'  },
-        { label: 'Total Reg', key: 'totalReg', width: 9,  align: 'right' },
+        { label: 'Webinar',   key: 'name'     },
+        { label: 'Total Reg', key: 'totalReg' },
       ],
     },
     {
       title: 'Agentic Bootcamps',
       items: sections.agenticBootcamps,
       cols: [
-        { label: 'Session',   key: 'name',     width: 36, align: 'left'  },
-        { label: 'Total Reg', key: 'totalReg', width: 9,  align: 'right' },
+        { label: 'Session',   key: 'name'     },
+        { label: 'Total Reg', key: 'totalReg' },
       ],
     },
     {
       title: 'Workshops',
       items: sections.workshops.filter(e => e.name !== 'TBD'),
       cols: [
-        { label: 'Workshop',  key: 'name',     width: 36, align: 'left'  },
-        { label: 'Total Reg', key: 'totalReg', width: 9,  align: 'right' },
+        { label: 'Workshop',  key: 'name'     },
+        { label: 'Total Reg', key: 'totalReg' },
       ],
     },
   ];
