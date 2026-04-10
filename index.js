@@ -421,6 +421,86 @@ async function sendSlack(payload) {
   }));
 }
 
+// ── Build a single-section Slack payload ─────────────────────────────────────
+function buildSectionBlock(title, items, cols) {
+  const today = new Date().toLocaleDateString('en-US', {
+    year: 'numeric', month: 'long', day: 'numeric',
+  });
+  const val  = (v) => (v == null || v === '' ? '—' : String(v));
+  const padL = (s, w) => String(s).padEnd(w);
+  const padR = (s, w) => String(s).padStart(w);
+
+  let tableText;
+  if (items.length === 0) {
+    tableText = '  (no data)';
+  } else {
+    const top     = '┌' + cols.map(c => '─'.repeat(c.width + 2)).join('┬') + '┐';
+    const header  = '│ ' + cols.map(c => padL(c.label, c.width)).join(' │ ') + ' │';
+    const divider = '├' + cols.map(c => '─'.repeat(c.width + 2)).join('┼') + '┤';
+    const bottom  = '└' + cols.map(c => '─'.repeat(c.width + 2)).join('┴') + '┘';
+    const rows = items.map(e =>
+      '│ ' + cols.map(c =>
+        c.align === 'right' ? padR(val(e[c.key]), c.width) : padL(val(e[c.key]), c.width)
+      ).join(' │ ') + ' │'
+    );
+    tableText = [top, header, divider, ...rows, bottom].join('\n');
+  }
+
+  return {
+    blocks: [
+      { type: 'header', text: { type: 'plain_text', text: `Event Registration Report — ${title}`, emoji: false } },
+      { type: 'context', elements: [{ type: 'mrkdwn', text: today }] },
+      { type: 'divider' },
+      { type: 'section', text: { type: 'mrkdwn', text: `\`\`\`${tableText}\`\`\`` } },
+    ],
+  };
+}
+
+// ── Send one message per section, sequentially ───────────────────────────────
+async function sendSlackSections(sections) {
+  const messages = [
+    {
+      title: 'Marquee Events',
+      items: sections.marqueeEvents,
+      cols: [
+        { label: 'Event',     key: 'name',     width: 32, align: 'left'  },
+        { label: 'Total Reg', key: 'totalReg', width: 9,  align: 'right' },
+        { label: 'Paid Reg',  key: 'paidReg',  width: 8,  align: 'right' },
+      ],
+    },
+    {
+      title: 'Webinars',
+      items: sections.webinars.filter(e => e.name !== 'TBD'),
+      cols: [
+        { label: 'Webinar',   key: 'name',     width: 36, align: 'left'  },
+        { label: 'Total Reg', key: 'totalReg', width: 9,  align: 'right' },
+      ],
+    },
+    {
+      title: 'Agentic Bootcamps',
+      items: sections.agenticBootcamps,
+      cols: [
+        { label: 'Session',   key: 'name',     width: 36, align: 'left'  },
+        { label: 'Total Reg', key: 'totalReg', width: 9,  align: 'right' },
+      ],
+    },
+    {
+      title: 'Workshops',
+      items: sections.workshops.filter(e => e.name !== 'TBD'),
+      cols: [
+        { label: 'Workshop',  key: 'name',     width: 36, align: 'left'  },
+        { label: 'Total Reg', key: 'totalReg', width: 9,  align: 'right' },
+      ],
+    },
+  ];
+
+  for (const { title, items, cols } of messages) {
+    const payload = buildSectionBlock(title, items, cols);
+    await sendSlack(payload);
+    console.log(`Slack message sent: ${title}`);
+  }
+}
+
 // ── HTTP handler ──────────────────────────────────────────────────────────────
 app.post('/', async (req, res) => {
   try {
@@ -432,10 +512,14 @@ app.post('/', async (req, res) => {
     const sections = parseSheetData(rows);
 
     // ── Slack notification ──────────────────────────────────────────────────
-    const slackPayload = buildSlackBlocks(sections);
-    console.log('Sending Slack message...');
-    await sendSlack(slackPayload);
-    console.log('Slack message sent.');
+    // Option A: one message per section (active)
+    await sendSlackSections(sections);
+
+    // Option B: single combined message (backup — swap with Option A to use)
+    // const slackPayload = buildSlackBlocks(sections);
+    // console.log('Sending Slack message...');
+    // await sendSlack(slackPayload);
+    // console.log('Slack message sent.');
 
     // ── Email notification (disabled) ──────────────────────────────────────
     // const html = buildEmailHtml(sections);
