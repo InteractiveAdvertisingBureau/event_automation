@@ -443,17 +443,23 @@ function buildSectionBlock(title, items, cols) {
 }
 
 // ── Send one message per section, sequentially ───────────────────────────────
+// Daily:   Marquee Events only
+// Monday:  All sections (Marquee + Webinars + Agentic Bootcamps + Workshops)
 async function sendSlackSections(sections) {
-  const messages = [
-    {
-      title: 'Marquee Events',
-      items: sections.marqueeEvents,
-      cols: [
-        { label: 'Event',     key: 'name'     },
-        { label: 'Total Reg', key: 'totalReg' },
-        { label: 'Paid Reg',  key: 'paidReg'  },
-      ],
-    },
+  const isMonday = new Date().getDay() === 1;
+
+  const marquee = {
+    title: 'Marquee Events',
+    items: sections.marqueeEvents,
+    cols: [
+      { label: 'Event',     key: 'name'     },
+      { label: 'Total Reg', key: 'totalReg' },
+      { label: 'Paid Reg',  key: 'paidReg'  },
+    ],
+  };
+
+  const allSections = [
+    marquee,
     {
       title: 'Webinars',
       items: sections.webinars.filter(e => e.name !== 'TBD'),
@@ -480,6 +486,9 @@ async function sendSlackSections(sections) {
     },
   ];
 
+  const messages = isMonday ? allSections : [marquee];
+
+  console.log(`Sending ${isMonday ? 'all sections (Monday)' : 'Marquee Events only'}`);
   for (const { title, items, cols } of messages) {
     const payload = buildSectionBlock(title, items, cols);
     await sendSlack(payload);
